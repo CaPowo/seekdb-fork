@@ -3,9 +3,9 @@
 ## Scope and candidate
 
 - V5 frozen base: `634888d9b037153fa143d2c913ba4b25503e1d62`.
-- Initial candidate used NN-Descent `nn_descent_niter=50`; after repeat screening,
-  current branch source uses `nn_descent_niter=55` (see the follow-up section below).
-  All SQL/API data remains FP32.
+- Current branch source uses NN-Descent `nn_descent_niter=50`; niter=55 was a
+  temporary candidate and is retained below as a measured comparison. All SQL/API
+  data remains FP32.
 - Local synthetic screening only: 250,000 vectors per dataset, dimensions 128 and 256, fixed generated query sets, top-10/top-100 ID recall against exact ground truth. This is not the organizer's formal dataset or score.
 
 ## Exact screening commands
@@ -141,8 +141,8 @@ local recall and query-throughput screens:
 
 Both recall results exceed the frozen synthetic baseline values (0.9410 / 0.8655),
 and the query QPS geometric means exceed 90% of the corresponding baseline example
-(119.62 / 112.49). niter=55 is the current screening candidate in bridge source;
-official hardware/data evaluation remains authoritative.
+(119.62 / 112.49). These were screening runs; niter=50 was subsequently selected
+for the current source based on the 4,096-query synthetic comparison below.
 
 The repeated run outputs are backed up at
 `/root/local-backups/amd-cagra-v5-validation/new-image/saved/amd-niter55-repeat-20261028.tgz`
@@ -175,24 +175,25 @@ shape only, a synthetic diagnostic cycled the existing 100 screen256 queries 41
 times and used the identical 4,096 SQL sequence for baseline and candidate. This is
 not the official `nq=4096` workload and must not be used as an official score.
 
-| Metric | V5 bridge niter=100 | Candidate niter=55 |
-|---|---:|---:|
-| Build + first query | 57,721 ms | 46,215 ms |
-| Top-10 QPS | 109.47 | 110.36 |
-| Top-100 QPS | 109.17 | 110.91 |
-| Recall@10 / @100 | 0.942993 / 0.866343 | 0.941992 / 0.870447 |
-| Duplicate IDs | 0 | 0 |
+| Metric | V5 bridge niter=100 | niter=55 | Current niter=50 |
+|---|---:|---:|---:|
+| Build + first query | 57,721 ms | 46,215 ms | 39,348 ms |
+| Top-10 QPS | 109.47 | 110.36 | 109.45 |
+| Top-100 QPS | 109.17 | 110.91 | 108.00 |
+| Recall@10 / @100 | 0.942993 / 0.866343 | 0.941992 / 0.870447 | 0.951025 / 0.867449 |
+| Duplicate IDs | 0 | 0 | 0 |
 
-The synthetic pair gives 1.249x build speedup (19.93% lower elapsed time) and
-1.012x query-QPS geometric-mean ratio. Recall deltas are -0.001001 / +0.004104;
-both runs returned 40,960 / 409,600 IDs respectively. Each trace contained 8,193
-`cuvs_serve` events (the first query plus both 4,096-query sets), confirming the
-GPU route in this diagnostic. P95 latency and VRAM peak were not recorded. These
-results only support keeping niter=55 for the next matched official test.
+The niter=55 run gave 1.249x build speedup and 1.012x query-QPS geometric-mean
+ratio. The niter=50 run gives 1.467x build speedup (31.83% lower elapsed time) and
+0.995x query-QPS geometric-mean ratio. Its recall deltas are +0.008032 / +0.001106
+versus niter=100. Each run returned 40,960 / 409,600 IDs; each trace contained
+8,193 `cuvs_serve` events (first query plus both query sets). P95 latency and VRAM
+peak were not recorded. The 100 original synthetic query vectors were repeated to
+form the 4,096 statements; this is not an official workload or score.
 
 Archive:
-`/root/local-backups/amd-cagra-v5-validation/new-image/saved/amd-nq4096-synthetic-pair-20261028.tgz`
-(SHA-256 `e985c2d82cb5d17d4467436ab9f4aaa3b5b9ec4d86685ca33934ced78a4e4fed`).
+`/root/local-backups/amd-cagra-v5-validation/new-image/saved/amd-nq4096-synthetic-n50-20261028.tgz`
+(SHA-256 `4d77ce4c8a8bc59fa6c48a5748c523640171a094a26c220cd0ee9a3ea70c024a`).
 
 ## Artifact backup
 
