@@ -120,6 +120,13 @@ Recall has ample headroom, but QPS is below 90% of the paired baseline examples
 `/root/local-backups/amd-cagra-v5-validation/new-image/saved/amd-nn160-320-result-20261028.tgz`
 (SHA-256 `0f4525f91ee847d77a4adaa4e128d2f8ad5e280478b4afe647138bbb359c99b3`).
 
+A follow-up with the same graph configuration and `search_width=3` measured 47,571 ms,
+Recall@10/100 deltas +0.0250/+0.0499, and QPS 98.52/96.25. Query throughput still
+misses the 90%-of-baseline floor, so reducing search width to 3 is also rejected.
+The run is backed up at
+`/root/local-backups/amd-cagra-v5-validation/new-image/saved/amd-nn160-320-sw3-result-20261028.tgz`
+(SHA-256 `e25b15586810eb8f9bc1deb7f152daa2ceea56ad48d37dfd750346a0edf949c6`).
+
 ## Artifact backup
 
 The complete pulled cloud screening archive, including generated SQL, IDs, traces, and per-run logs, is:
