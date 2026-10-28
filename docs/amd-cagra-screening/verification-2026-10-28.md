@@ -99,6 +99,27 @@ SHA-256: `183e637a6d315b3952aa4043e0addf9c411eaf926f278b15302e0a82a1380ef1`.
 The unmerged patches are separately preserved as `direct-load-batch-attempt.patch`
 and `hnsw-append-pipeline-attempt.patch` in the same local backup directory.
 
+## 2026-10-28 follow-up: larger graph quality/query trade-off
+
+The 256-D `NN_DESCENT`, degree 160 / intermediate 320, niter 50 candidate measured:
+
+```text
+nn160_320_n50_256,top10,elapsed_ms=1020,qps=98.04
+nn160_320_n50_256,top100,elapsed_ms=1065,qps=93.90
+nn160_320_n50_256,44401
+baseline Recall@10=0.941000 duplicate_queries=0
+baseline Recall@100=0.865500 duplicate_queries=0
+candidate Recall@10=0.968000 duplicate_queries=0
+candidate Recall@100=0.914300 duplicate_queries=0
+nn160_320_n50_256 delta@10=+0.027000
+nn160_320_n50_256 delta@100=+0.048800
+```
+
+Recall has ample headroom, but QPS is below 90% of the paired baseline examples
+(119.62 / 112.49); this configuration is not accepted. Its archive is
+`/root/local-backups/amd-cagra-v5-validation/new-image/saved/amd-nn160-320-result-20261028.tgz`
+(SHA-256 `0f4525f91ee847d77a4adaa4e128d2f8ad5e280478b4afe647138bbb359c99b3`).
+
 ## Artifact backup
 
 The complete pulled cloud screening archive, including generated SQL, IDs, traces, and per-run logs, is:
