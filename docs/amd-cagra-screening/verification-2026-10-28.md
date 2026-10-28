@@ -3,7 +3,9 @@
 ## Scope and candidate
 
 - V5 frozen base: `634888d9b037153fa143d2c913ba4b25503e1d62`.
-- Candidate source: `tools/hipvs_bridge/seekdb_cuvs_bridge.c` changes NN-Descent `nn_descent_niter` from 100 to 50; all SQL/API data remains FP32.
+- Initial candidate used NN-Descent `nn_descent_niter=50`; after repeat screening,
+  current branch source uses `nn_descent_niter=55` (see the follow-up section below).
+  All SQL/API data remains FP32.
 - Local synthetic screening only: 250,000 vectors per dataset, dimensions 128 and 256, fixed generated query sets, top-10/top-100 ID recall against exact ground truth. This is not the organizer's formal dataset or score.
 
 ## Exact screening commands
@@ -126,6 +128,38 @@ misses the 90%-of-baseline floor, so reducing search width to 3 is also rejected
 The run is backed up at
 `/root/local-backups/amd-cagra-v5-validation/new-image/saved/amd-nn160-320-sw3-result-20261028.tgz`
 (SHA-256 `e25b15586810eb8f9bc1deb7f152daa2ceea56ad48d37dfd750346a0edf949c6`).
+
+## 2026-10-28 follow-up: niter=55 retest and code-path experiments
+
+Two 256-D NN-Descent niter=55 runs at the default 128/256 graph degrees passed the
+local recall and query-throughput screens:
+
+| Run | Build + first query | Recall@10 / @100 | Query QPS top10 / top100 |
+|---|---:|---:|---:|
+| `niter55` | 40,354 ms | 0.9420 / 0.8684 | 102.56 / 120.63 |
+| `niter55_repeat_256` | 43,471 ms | 0.9450 / 0.8698 | 99.01 / 130.72 |
+
+Both recall results exceed the frozen synthetic baseline values (0.9410 / 0.8655),
+and the query QPS geometric means exceed 90% of the corresponding baseline example
+(119.62 / 112.49). niter=55 is the current screening candidate in bridge source;
+official hardware/data evaluation remains authoritative.
+
+The repeated run outputs are backed up at
+`/root/local-backups/amd-cagra-v5-validation/new-image/saved/amd-niter55-repeat-20261028.tgz`
+(SHA-256 `fcf3d54eec7b1716faeeb514245a70423b197faf3c45e821cc370dba09b8ccdf`).
+
+Other one-hour follow-ups were rejected:
+
+- Registering the CPU input buffer with `cudaHostRegister` succeeded for 256,000,000
+  bytes, but did not yield repeatable build or query gains. The experiment was
+  reverted. Its archives are `amd-hostpin-n50-result-20261028.tgz` (SHA-256
+  `d828f8bd2e0dd244df11f84fddea89fd6ee22557d1d4d7099e0b5a7404895df8`) and
+  `amd-hostpin-diag-result-20261028.tgz` (SHA-256
+  `b68c69bf8deb495783dbee66c56eefe5f5f39c427ff5f05dbc423549fd61171c`).
+- Reducing graph degree to 112 / intermediate 224 at niter=50 built in 34,070 ms,
+  but Recall@10/100 fell to 0.6010 / 0.5567; rejected. Archive:
+  `amd-nn112-224-fail-20261028.tgz` (SHA-256
+  `1a30b1c18d8813a674b5cfb6de4d6041a4b74150f122de7522be474496b7a0a7`).
 
 ## Artifact backup
 
