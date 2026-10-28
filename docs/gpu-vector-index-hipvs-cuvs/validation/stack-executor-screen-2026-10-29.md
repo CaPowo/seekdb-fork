@@ -76,6 +76,38 @@ slower and reduced @10 recall; `IVF_PQ` was much faster but missed the recall
 target by a wide margin. Neither was retained; production still uses the V5
 NN-Descent build path.
 
+## Snapshot transfer optimization
+
+After CAGRA serialization to a temporary file, the adaptor copies the graph
+file into the storage stream. The previous loop used 64 KiB read/write chunks;
+the retained change uses 4 MiB chunks for both snapshot write and reload. Stage
+timings were:
+
+| Chunk | Total build + first query (ms) | CAGRA build + temp serialize (ms) | Snapshot stream write (ms) |
+|---:|---:|---:|---:|
+| 64 KiB | 60,024 | 43,586 | 9,440 |
+| 4 MiB, run 1 | 58,355 | 46,276 | 5,079 |
+| 4 MiB, run 2 | 59,783 | 44,286 | 8,640 |
+
+The two 4 MiB runs averaged 6.86 s in snapshot output versus 9.44 s in the
+single 64 KiB sample (about 27% less in that stage). Total build+first-query
+time averaged 59.07 s versus 60.02 s; because the old-chunk sample count is one
+and CAGRA construction varies, this is a modest diagnostic result rather than
+a claimed general build-speedup. Graph bytes remained 384,001,713 and result
+row counts/duplicate checks passed. A server restart then loaded the saved
+4 MiB-chunk snapshot and returned 10 IDs through one traced GPU CAGRA serve.
+
+## FP16 probe (discarded)
+
+An internal FP16 CAGRA build/query probe reduced the serialized graph from
+384,001,713 to 256,001,713 bytes and measured 54.2–54.5 s build+first-query
+time on the same synthetic screen. Recall varied between 0.938–0.946 at @10
+and 0.864–0.867 at @100, with no duplicate IDs. However, the fixed hipVS
+26.03 `cuvsCagraDeserialize` rejected FP16 graph files with `Unsupported dtype
+in file`; FP16 snapshot round-trip therefore failed. The FP16 code was removed
+and is not part of the candidate. The shipped path remains FP32 and retains
+the snapshot format's load behavior.
+
 ## CPU-path regression check
 
 On the same instance, a `lib=vsag` HNSW index was built over 2,000 rows from the
