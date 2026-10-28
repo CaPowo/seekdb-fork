@@ -83,7 +83,7 @@ namespace {
 // dedicated 32 MiB-stack executor instead of creating and joining a pthread
 // for every ANN query. The registry already serializes its per-index search
 // path; this queue also makes bridge/resource use deterministic across callers.
-struct ObCuvsStackExecutor {
+struct CuvsStackExecutor {
   pthread_t thread_;
   pthread_mutex_t mutex_ = PTHREAD_MUTEX_INITIALIZER;
   pthread_cond_t ready_ = PTHREAD_COND_INITIALIZER;
@@ -95,12 +95,12 @@ struct ObCuvsStackExecutor {
   bool pending_ = false;
   bool complete_ = false;
 };
-static ObCuvsStackExecutor g_ob_cuvs_executor;
+static CuvsStackExecutor g_ob_cuvs_executor;
 static pthread_once_t g_ob_cuvs_executor_once = PTHREAD_ONCE_INIT;
 
 static void *ob_cuvs_executor_main(void *arg)
 {
-  ObCuvsStackExecutor *executor = static_cast<ObCuvsStackExecutor *>(arg);
+  CuvsStackExecutor *executor = static_cast<CuvsStackExecutor *>(arg);
   pthread_mutex_lock(&executor->mutex_);
   for (;;) {
     while (!executor->pending_) pthread_cond_wait(&executor->ready_, &executor->mutex_);
@@ -118,7 +118,7 @@ static void *ob_cuvs_executor_main(void *arg)
 
 static void ob_cuvs_executor_start()
 {
-  ObCuvsStackExecutor *executor = &g_ob_cuvs_executor;
+  CuvsStackExecutor *executor = &g_ob_cuvs_executor;
   pthread_attr_t attr;
   if (pthread_attr_init(&attr) != 0) return;
   int rc = pthread_attr_setstacksize(&attr, 32UL * 1024 * 1024);
@@ -133,7 +133,7 @@ static void ob_cuvs_executor_start()
 static bool ob_cuvs_run_big_stack(void *(*fn)(void *), void *arg)
 {
   pthread_once(&g_ob_cuvs_executor_once, ob_cuvs_executor_start);
-  ObCuvsStackExecutor *executor = &g_ob_cuvs_executor;
+  CuvsStackExecutor *executor = &g_ob_cuvs_executor;
   if (executor->started_) {
     pthread_mutex_lock(&executor->mutex_);
     while (executor->busy_) pthread_cond_wait(&executor->done_, &executor->mutex_);
