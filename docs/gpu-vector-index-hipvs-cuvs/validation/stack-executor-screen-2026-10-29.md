@@ -113,8 +113,8 @@ Top-10 plus Top-100 statements as the V2 4 MiB runs:
 
 | Format | Run | Build + first query (ms) | CAGRA build (ms) | Snapshot stream write (ms) | Top-10 / Top-100 QPS | Recall@10 / @100 |
 |---|---:|---:|---:|---:|---:|---:|
-| V2, 4 MiB | 1 | 58,355 | 46,276 | 5,079 | 197.27 / 189.65 | not recorded |
-| V2, 4 MiB | 2 | 59,783 | 44,286 | 8,640 | 196.66 / 185.91 | not recorded |
+| V2, 4 MiB | 1 | 58,355 | 46,276 | 5,079 | 197.27 / 189.65 | 0.937012 / 0.865330 |
+| V2, 4 MiB | 2 | 59,783 | 44,286 | 8,640 | 196.66 / 185.91 | 0.943018 / 0.865740 |
 | V3 | 1 | 53,912 | 45,808 | 298 | 251.35 / 245.02 | 0.948022 / 0.868337 |
 | V3 | 2 | 55,462 | 47,785 | 300 | 241.88 / 242.19 | 0.945996 / 0.869231 |
 
@@ -151,6 +151,18 @@ These numbers are still synthetic GPU-instance diagnostics, not official
 SIFT250K/Hidden250K scores. The benchmark samples are small; the storage-format
 change and compatibility tests pass, but no official score or quality-gate
 claim follows from this screen.
+
+The checked output artifacts were revalidated after both runs (validation
+command exit status 0). Each of the four runs had 8,193 `cuvs_serve` traces,
+40,960 Top-10 rows, 409,600 Top-100 rows, and zero duplicate-result queries.
+The captured recall and timing summaries were:
+
+```text
+V2 snapshotchunk_4mb100: build+first=58355 ms; top10=20763 ms/QPS 197.27; top100=21598 ms/QPS 189.65; Recall@10=0.937012; Recall@100=0.865330; exit_status=0
+V2 snapshotchunk_final4mb100: build+first=59783 ms; top10=20828 ms/QPS 196.66; top100=22032 ms/QPS 185.91; Recall@10=0.943018; Recall@100=0.865740; exit_status=0
+V3 snapshot_v3_test100: build+first=53912 ms; top10=16296 ms/QPS 251.35; top100=16717 ms/QPS 245.02; Recall@10=0.948022; Recall@100=0.868337; exit_status=0
+V3 snapshot_v3_test100_r2: build+first=55462 ms; top10=16934 ms/QPS 241.88; top100=16912 ms/QPS 242.19; Recall@10=0.945996; Recall@100=0.869231; exit_status=0
+```
 
 ## FP16 probe (discarded)
 
