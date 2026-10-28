@@ -54,12 +54,33 @@ ID 0.
 
 ## Reproduction
 
-The local benchmark source used for this screen was `/tmp/cuvs_search_bench.cpp`
-on the development host; bridge variants and the serialized graph were under
+The reproducible harness is
+[`benchmark_search.cpp`](../../../tools/hipvs_bridge/benchmark_search.cpp).
+The six-run table was produced by its prototype; the committed harness was then
+compiled on the GPU host and rerun against both libraries, producing 385.122 /
+377.802 QPS for baseline and 388.804 / 381.022 QPS for candidate, with zero
+duplicate rows. Bridge variants and the serialized graph were under
 `/workspace/bridge-{baseline,candidate}` and `/workspace/cuvs-search-test/` on
-the GPU instance. The GPU instance was freshly provisioned and had no seekdb
-server build or prior 256D SQL dataset, so this is a bridge-level microbenchmark,
-not the contest SQL benchmark or an official score measurement.
+the GPU instance. That fresh instance had no seekdb server build or prior 256D
+SQL dataset, so this remains a bridge-level microbenchmark, not the contest SQL
+benchmark or an official score measurement.
+
+The core commands were:
+
+```bash
+g++ -std=c++17 -O2 -I tools/hipvs_bridge \
+  tools/hipvs_bridge/benchmark_search.cpp \
+  -L/workspace/bridge-baseline -lseekdb_cuvs_bridge \
+  -Wl,-rpath,/workspace/bridge-baseline -o /workspace/cuvs-search-test/bench-baseline
+LD_LIBRARY_PATH=/workspace/bridge-baseline:/opt/hipvs/lib:/opt/rocm/lib \
+  /workspace/cuvs-search-test/bench-baseline build /workspace/cuvs-search-test/index.cuvs
+LD_LIBRARY_PATH=/workspace/bridge-baseline:/opt/hipvs/lib:/opt/rocm/lib \
+  /workspace/cuvs-search-test/bench-baseline bench /workspace/cuvs-search-test/index.cuvs
+```
+
+The candidate was compiled and run the same way, replacing `bridge-baseline`
+with `bridge-candidate` and using the same `index.cuvs` file.
 
 The candidate implementation remains available locally on branch
-`experiment/cuvs-query-buffer-reuse` at commit `83857e1dc` for future profiling.
+`experiment/cuvs-query-buffer-reuse` at commit `83857e1dc` for future profiling;
+it is not part of the pushed contest branch.
