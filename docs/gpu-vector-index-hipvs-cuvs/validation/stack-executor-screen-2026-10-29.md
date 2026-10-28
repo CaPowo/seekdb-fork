@@ -108,6 +108,27 @@ in file`; FP16 snapshot round-trip therefore failed. The FP16 code was removed
 and is not part of the candidate. The shipped path remains FP32 and retains
 the snapshot format's load behavior.
 
+## Lower-iteration / wider-search probe (not retained)
+
+I also tested a build/query tradeoff using FP32 data: `nn_descent_niter=50`
+with the fixed SQL unchanged, varying only the bridge's internal CAGRA
+`search_width`. It can recover part of the recall lost by a cheaper graph, but
+the repeated @10 result still fluctuated below the official 0.95 SIFT floor on
+this synthetic screen, so none of these settings was promoted:
+
+| `search_width` | Build + first query (ms) | Top-10 / Top-100 QPS | Recall@10 / @100 |
+|---:|---:|---:|---:|
+| 8 | 40,366 | 236.53 / 229.66 | 0.940015 / 0.867737 |
+| 16 | 39,270 | 367.26 / 355.34 | 0.949976 / 0.868740 |
+| 32, run 1 | 44,303 | 359.24 / 327.58 | 0.950000 / 0.875525 |
+| 32, run 2 | 45,584 | 379.40 / 382.98 | 0.943970 / 0.876428 |
+
+All completed runs returned the expected row counts with no duplicate IDs and
+8,193 traced GPU serves. `search_width=64` did not complete even its first
+query within three minutes and was stopped. These measurements motivate
+testing with the official datasets, but do not justify changing the frozen
+FP32 build configuration in this branch.
+
 ## CPU-path regression check
 
 On the same instance, a `lib=vsag` HNSW index was built over 2,000 rows from the
