@@ -63,6 +63,42 @@ Against the corresponding niter-100 256-D screening run (59,782 ms), the observe
 
 An FP16 bridge prototype compiled, but its first query did not complete in the screening timeout; it was discarded. None of these experimental settings are in the candidate source.
 
+## 2026-10-28 follow-up: append-path trace and discarded experiment
+
+Two source-level batching attempts targeted `ObVectorIndexSliceStore::append_row()` in
+`src/storage/ddl/ob_direct_load_struct.cpp` and `ObHNSWIndexAppendBufferOperator` in
+`src/storage/ddl/ob_ddl_pipeline.cpp`. Both compiled, but neither changed the exercised
+hot path: three follow-up 256-D `niter=50` runs still recorded exactly 250,000
+`add_dense ... b=1` trace events. The patches were archived and removed from the working
+branch; they are not candidate optimizations.
+
+Verified follow-up run (`core_batch_diag_n50_256`):
+
+```text
+core_batch_diag_n50_256,top10,elapsed_ms=924,qps=108.23
+core_batch_diag_n50_256,top100,elapsed_ms=938,qps=106.61
+core_batch_diag_n50_256,40849
+baseline Recall@10=0.941000 duplicate_queries=0
+baseline Recall@100=0.865500 duplicate_queries=0
+candidate Recall@10=0.942000 duplicate_queries=0
+candidate Recall@100=0.869000 duplicate_queries=0
+core_batch_diag_n50_256 delta@10=+0.001000
+core_batch_diag_n50_256 delta@100=+0.003500
+```
+
+The trace source is `src/oblib/lib/vector/ob_vsag_adaptor.cpp`: the actual CAGRA
+ingest point is `ob_cuvs_add()`, which accumulates vectors in the per-index buffer;
+the GPU graph is then built by `seekdb_cuvs_build()` on the first query. Follow-up
+work should begin at this verified route, rather than the two unused DDL paths.
+
+The additional trace/log archive is:
+
+`/root/local-backups/amd-cagra-v5-validation/new-image/saved/amd-latest-pipeline-runs-20261028.tgz`
+
+SHA-256: `183e637a6d315b3952aa4043e0addf9c411eaf926f278b15302e0a82a1380ef1`.
+The unmerged patches are separately preserved as `direct-load-batch-attempt.patch`
+and `hnsw-append-pipeline-attempt.patch` in the same local backup directory.
+
 ## Artifact backup
 
 The complete pulled cloud screening archive, including generated SQL, IDs, traces, and per-run logs, is:
