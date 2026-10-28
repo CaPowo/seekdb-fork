@@ -79,12 +79,95 @@ using namespace vsag;
 // runs seekdb's real vector-adaptor data path on the GPU. PoC: single writer per
 // index, results allocated with the handle's allocator (drop-in with VSAG path).
 namespace {
+// CAGRA's host-side call stack exceeds seekdb's worker stack. Reuse one
+// dedicated 32 MiB-stack executor instead of creating and joining a pthread
+// for every ANN query. The registry already serializes its per-index search
+// path; this queue also makes bridge/resource use deterministic across callers.
+struct ObCuvsStackExecutor {
+  pthread_t thread_;
+  pthread_mutex_t mutex_ = PTHREAD_MUTEX_INITIALIZER;
+  pthread_cond_t ready_ = PTHREAD_COND_INITIALIZER;
+  pthread_cond_t done_ = PTHREAD_COND_INITIALIZER;
+  void *(*fn_)(void *) = nullptr;
+  void *arg_ = nullptr;
+  bool started_ = false;
+  bool busy_ = false;
+  bool pending_ = false;
+  bool complete_ = false;
+};
+static ObCuvsStackExecutor g_ob_cuvs_executor;
+static pthread_once_t g_ob_cuvs_executor_once = PTHREAD_ONCE_INIT;
+
+static void *ob_cuvs_executor_main(void *arg)
+{
+  ObCuvsStackExecutor *executor = static_cast<ObCuvsStackExecutor *>(arg);
+  pthread_mutex_lock(&executor->mutex_);
+  for (;;) {
+    while (!executor->pending_) pthread_cond_wait(&executor->ready_, &executor->mutex_);
+    void *(*fn)(void *) = executor->fn_;
+    void *job = executor->arg_;
+    executor->pending_ = false;
+    pthread_mutex_unlock(&executor->mutex_);
+    fn(job);
+    pthread_mutex_lock(&executor->mutex_);
+    executor->complete_ = true;
+    pthread_cond_broadcast(&executor->done_);
+  }
+  return nullptr;
+}
+
+static void ob_cuvs_executor_start()
+{
+  ObCuvsStackExecutor *executor = &g_ob_cuvs_executor;
+  pthread_attr_t attr;
+  if (pthread_attr_init(&attr) != 0) return;
+  int rc = pthread_attr_setstacksize(&attr, 32UL * 1024 * 1024);
+  if (rc == 0) rc = pthread_create(&executor->thread_, &attr, ob_cuvs_executor_main, executor);
+  pthread_attr_destroy(&attr);
+  if (rc == 0) {
+    executor->started_ = true;
+    pthread_detach(executor->thread_);
+  }
+}
+
+static bool ob_cuvs_run_big_stack(void *(*fn)(void *), void *arg)
+{
+  pthread_once(&g_ob_cuvs_executor_once, ob_cuvs_executor_start);
+  ObCuvsStackExecutor *executor = &g_ob_cuvs_executor;
+  if (executor->started_) {
+    pthread_mutex_lock(&executor->mutex_);
+    while (executor->busy_) pthread_cond_wait(&executor->done_, &executor->mutex_);
+    executor->busy_ = true;
+    executor->complete_ = false;
+    executor->fn_ = fn;
+    executor->arg_ = arg;
+    executor->pending_ = true;
+    pthread_cond_signal(&executor->ready_);
+    while (!executor->complete_) pthread_cond_wait(&executor->done_, &executor->mutex_);
+    executor->busy_ = false;
+    pthread_cond_broadcast(&executor->done_);
+    pthread_mutex_unlock(&executor->mutex_);
+    return true;
+  }
+
+  // Preserve functionality if the reusable executor cannot be initialized.
+  pthread_t thread;
+  pthread_attr_t attr;
+  if (pthread_attr_init(&attr) != 0) return false;
+  int rc = pthread_attr_setstacksize(&attr, 32UL * 1024 * 1024);
+  if (rc == 0) rc = pthread_create(&thread, &attr, fn, arg);
+  pthread_attr_destroy(&attr);
+  return rc == 0 && pthread_join(thread, nullptr) == 0;
+}
+
 struct ObCuvsEntry {
   std::shared_ptr<void> bridge_;// opaque handle from seekdb_cuvs_build
   int dim_ = 0;
   std::vector<int64_t> ids_;    // CAGRA row offset -> external vid (of the built index)
   std::vector<float> buf_vecs_; // accumulated vectors (row-major) from add_index
   std::vector<int64_t> buf_ids_;// accumulated external vids from add_index
+  std::vector<unsigned> search_off_; // reusable per-index single-query scratch
+  std::vector<float> search_dst_;    // reusable per-index single-query scratch
   size_t built_n_ = 0;          // #vectors present when cuVS was last (re)built
   bool vsag_ready_ = false;     // CPU fallback is built only when it is needed
 };
@@ -146,10 +229,7 @@ static void *ob_cuvs_build_job(void *arg) {
 // cuVS overflows the small OB worker/DDL stack, so builds run on a 32MB pthread.
 static std::shared_ptr<void> ob_cuvs_build_big_stack(const float *base, long n, long dim) {
   ObCuvsBuildJob job{base, n, dim, nullptr};
-  pthread_t tid; pthread_attr_t attr; pthread_attr_init(&attr);
-  pthread_attr_setstacksize(&attr, 32UL * 1024 * 1024);
-  if (pthread_create(&tid, &attr, ob_cuvs_build_job, &job) == 0) { pthread_join(tid, nullptr); }
-  pthread_attr_destroy(&attr);
+  ob_cuvs_run_big_stack(ob_cuvs_build_job, &job);
   return ob_cuvs_wrap(job.out);
 }
 static void ob_cuvs_register(void *key, const float *vectors, const int64_t *ids,
@@ -280,13 +360,11 @@ static bool ob_cuvs_try_search(void *key, vsag::Allocator *alloc,
   const size_t n = ent->buf_ids_.size();
   const bool need_build =
       (n >= OB_CUVS_MIN_PTS && (ent->bridge_ == nullptr || n >= ent->built_n_ * 2));
-  std::vector<unsigned> off(topk);
-  std::vector<float> dst(topk);
-  ObCuvsJob job{ent, query, topk, static_cast<int>(ent->dim_), n, need_build, &off, &dst, -1, false};
-  pthread_t tid; pthread_attr_t attr; pthread_attr_init(&attr);
-  pthread_attr_setstacksize(&attr, 32UL * 1024 * 1024);
-  if (pthread_create(&tid, &attr, ob_cuvs_job, &job) == 0) { pthread_join(tid, nullptr); }
-  pthread_attr_destroy(&attr);
+  ent->search_off_.resize(static_cast<size_t>(topk));
+  ent->search_dst_.resize(static_cast<size_t>(topk));
+  ObCuvsJob job{ent, query, topk, static_cast<int>(ent->dim_), n, need_build,
+                &ent->search_off_, &ent->search_dst_, -1, false};
+  if (!ob_cuvs_run_big_stack(ob_cuvs_job, &job)) { job.rc_ = -1; }
   if (job.built_) { ob_vsag_trace("cuvs_build", key, static_cast<long>(ent->dim_), static_cast<long>(n)); }
   if (ent->bridge_ == nullptr || job.rc_ != 0) { return false; }
   // Post-filter: cuVS returned UNFILTERED top-k. Apply the query's row filter
@@ -296,7 +374,8 @@ static bool ob_cuvs_try_search(void *key, vsag::Allocator *alloc,
   if (filter != nullptr) {
     FilterInterface *fi = static_cast<FilterInterface *>(filter);
     for (int64_t i = 0; i < topk; ++i) {
-      int64_t vid = (off[i] < ent->ids_.size()) ? static_cast<int64_t>(ent->ids_[off[i]]) : -1;
+      const unsigned offset = ent->search_off_[i];
+      int64_t vid = (offset < ent->ids_.size()) ? static_cast<int64_t>(ent->ids_[offset]) : -1;
       const bool valid = reverse_filter ? fi->test(vid) : !fi->test(vid);
       if (!valid) { return false; }
     }
@@ -311,9 +390,9 @@ static bool ob_cuvs_try_search(void *key, vsag::Allocator *alloc,
     return false;
   }
   for (int64_t i = 0; i < topk; ++i) {
-    unsigned o = off[i];
+    unsigned o = ent->search_off_[i];
     out_ids[i] = (o < ent->ids_.size()) ? ent->ids_[o] : -1;
-    out_dist[i] = dst[i];
+    out_dist[i] = ent->search_dst_[i];
   }
   ids = out_ids; dist = out_dist; result_size = topk;
   ob_vsag_trace("cuvs_serve", key, static_cast<long>(topk), static_cast<long>(ent->ids_.size()));
@@ -347,13 +426,7 @@ static void *ob_cuvs_snapshot_job(void *arg) {
   return nullptr;
 }
 static bool ob_cuvs_snapshot_big_stack(ObCuvsSnapshotJob &job) {
-  pthread_t thread;
-  pthread_attr_t attr;
-  if (pthread_attr_init(&attr) != 0) { return false; }
-  int rc = pthread_attr_setstacksize(&attr, 32UL * 1024 * 1024);
-  if (rc == 0) { rc = pthread_create(&thread, &attr, ob_cuvs_snapshot_job, &job); }
-  pthread_attr_destroy(&attr);
-  return rc == 0 && pthread_join(thread, nullptr) == 0 && job.rc_ == 0;
+  return ob_cuvs_run_big_stack(ob_cuvs_snapshot_job, &job) && job.rc_ == 0;
 }
 
 static bool ob_cuvs_write(std::ostream &out, const void *data, size_t bytes) {
@@ -2086,10 +2159,7 @@ long cuvs_knn_search_batch(void *key, const float *queries, long nq, long topk,
   std::vector<float> dst(static_cast<size_t>(nq) * topk);
   ObCuvsBatchJob job{ent, queries, nq, topk, n, need_build,
                      off.data(), dst.data(), 0, false};
-  pthread_t tid; pthread_attr_t attr; pthread_attr_init(&attr);
-  pthread_attr_setstacksize(&attr, 32UL * 1024 * 1024);
-  if (pthread_create(&tid, &attr, ob_cuvs_batch_job, &job) == 0) { pthread_join(tid, nullptr); }
-  pthread_attr_destroy(&attr);
+  if (!ob_cuvs_run_big_stack(ob_cuvs_batch_job, &job)) { job.served_ = 0; }
   if (job.built_) { ob_vsag_trace("cuvs_batch_build", key, static_cast<long>(ent->dim_), static_cast<long>(n)); }
   if (job.served_ != nq) { return 0; }
   for (long q = 0; q < nq; ++q) {
@@ -2116,10 +2186,7 @@ long cuvs_batch_knn(const float *base, long n, long dim,
   if (base == nullptr || query == nullptr || out_ids == nullptr ||
       out_dist == nullptr || n <= 0 || dim <= 0 || nq <= 0 || topk <= 0) { return 0; }
   ObCuvsRawBatchJob job{base, n, dim, query, nq, topk, out_ids, out_dist, 0};
-  pthread_t tid; pthread_attr_t attr; pthread_attr_init(&attr);
-  pthread_attr_setstacksize(&attr, 32UL * 1024 * 1024);
-  if (pthread_create(&tid, &attr, ob_cuvs_raw_batch_job, &job) == 0) { pthread_join(tid, nullptr); }
-  pthread_attr_destroy(&attr);
+  if (!ob_cuvs_run_big_stack(ob_cuvs_raw_batch_job, &job)) { job.served_ = 0; }
   ob_vsag_trace("cuvs_raw_batch", base, nq, topk);
   return job.served_;
 }
