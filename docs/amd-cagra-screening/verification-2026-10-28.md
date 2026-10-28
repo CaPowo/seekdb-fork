@@ -167,6 +167,33 @@ Other one-hour follow-ups were rejected:
   `amd-niter55-reusews-20261028.tgz` (SHA-256
   `f420b645a5f01e3233e069dba3edacb92cb99a08ff4bea09ee3b88e32495e7d4`).
 
+## 2026-10-28: 4,096-query synthetic workload pair
+
+The cloud workspace did not contain the organizer's fixed SIFT250K/Hidden250K
+datasets or official query runner. To exercise the 4,096-single-query execution
+shape only, a synthetic diagnostic cycled the existing 100 screen256 queries 41
+times and used the identical 4,096 SQL sequence for baseline and candidate. This is
+not the official `nq=4096` workload and must not be used as an official score.
+
+| Metric | V5 bridge niter=100 | Candidate niter=55 |
+|---|---:|---:|
+| Build + first query | 57,721 ms | 46,215 ms |
+| Top-10 QPS | 109.47 | 110.36 |
+| Top-100 QPS | 109.17 | 110.91 |
+| Recall@10 / @100 | 0.942993 / 0.866343 | 0.941992 / 0.870447 |
+| Duplicate IDs | 0 | 0 |
+
+The synthetic pair gives 1.249x build speedup (19.93% lower elapsed time) and
+1.012x query-QPS geometric-mean ratio. Recall deltas are -0.001001 / +0.004104;
+both runs returned 40,960 / 409,600 IDs respectively. Each trace contained 8,193
+`cuvs_serve` events (the first query plus both 4,096-query sets), confirming the
+GPU route in this diagnostic. P95 latency and VRAM peak were not recorded. These
+results only support keeping niter=55 for the next matched official test.
+
+Archive:
+`/root/local-backups/amd-cagra-v5-validation/new-image/saved/amd-nq4096-synthetic-pair-20261028.tgz`
+(SHA-256 `e985c2d82cb5d17d4467436ab9f4aaa3b5b9ec4d86685ca33934ced78a4e4fed`).
+
 ## Artifact backup
 
 The complete pulled cloud screening archive, including generated SQL, IDs, traces, and per-run logs, is:
