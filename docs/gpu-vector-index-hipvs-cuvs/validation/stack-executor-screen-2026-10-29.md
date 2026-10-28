@@ -111,7 +111,7 @@ The two V3 runs used the same 250,000 x 256 synthetic FP32 vectors, fixed
 `niter=100`, graph degree 128, intermediate degree 256, and 4,096 single-query
 Top-10 plus Top-100 statements as the V2 4 MiB runs:
 
-| Format | Run | Build + first query (ms) | CAGRA build (ms) | Snapshot stream write (ms) | Top-10 / Top-100 QPS | Recall@10 / @100 |
+| Format | Run | Build + first query (ms) | CAGRA build + temp serialize (ms) | Snapshot stream write (ms) | Top-10 / Top-100 QPS | Recall@10 / @100 |
 |---|---:|---:|---:|---:|---:|---:|
 | V2, 4 MiB | 1 | 58,355 | 46,276 | 5,079 | 197.27 / 189.65 | 0.937012 / 0.865330 |
 | V2, 4 MiB | 2 | 59,783 | 44,286 | 8,640 | 196.66 / 185.91 | 0.943018 / 0.865740 |
@@ -120,9 +120,9 @@ Top-10 plus Top-100 statements as the V2 4 MiB runs:
 
 Across these two runs, V3's build+first-query mean was 54.69 s versus 59.07 s
 for V2 4 MiB (7.4% lower); snapshot stream output fell from 6.86 s to 0.30 s
-(95.6% lower). CAGRA build time itself varied and did not improve in these
-samples, so the end-to-end reduction is attributable to removing redundant
-snapshot output, not faster graph construction. The 250,000 x 256 raw-vector
+(95.6% lower). CAGRA build plus temporary graph serialization varied and did
+not improve in these samples, so the end-to-end reduction is attributable to
+removing redundant snapshot output, not a faster build stage. The 250,000 x 256 raw-vector
 copy omitted from the outer payload is 256,000,000 bytes (about 244 MiB).
 V3 returned all 409,600 Top-100 rows with no duplicate-result queries in both
 runs.
