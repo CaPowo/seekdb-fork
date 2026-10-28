@@ -160,6 +160,12 @@ Other one-hour follow-ups were rejected:
   but Recall@10/100 fell to 0.6010 / 0.5567; rejected. Archive:
   `amd-nn112-224-fail-20261028.tgz` (SHA-256
   `1a30b1c18d8813a674b5cfb6de4d6041a4b74150f122de7522be474496b7a0a7`).
+- A bridge-side per-index GPU query-buffer reuse implementation compiled and passed
+  IDs/Recall, but had no repeatable query-throughput gain and serialized concurrent
+  searches on a mutex. It was reverted. Measured 43,578 ms, Recall@10/100
+  0.9410/0.8672, QPS 110.01/109.65. Archive:
+  `amd-niter55-reusews-20261028.tgz` (SHA-256
+  `f420b645a5f01e3233e069dba3edacb92cb99a08ff4bea09ee3b88e32495e7d4`).
 
 ## Artifact backup
 
