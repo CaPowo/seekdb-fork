@@ -27,6 +27,11 @@ int main(int argc, char **argv)
     index = seekdb_cuvs_deserialize(argv[2], count, dimension);
     if (!index) return 4;
   }
+  std::vector<float> restored(vectors.size());
+  if (seekdb_cuvs_copy_dataset(index, restored.data(), count, dimension) != 0) return 8;
+  for (size_t i = 0; i < vectors.size(); ++i) {
+    if (std::fabs(restored[i] - vectors[i]) > 0.0001f) return 9;
+  }
   unsigned int ids[10];
   float distances[10];
   int result = seekdb_cuvs_search(index, vectors.data(), 1, 10, ids, distances);

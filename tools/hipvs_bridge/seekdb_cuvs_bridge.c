@@ -10,6 +10,8 @@
 #endif
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
 
 typedef struct {
   cuvsResources_t        res;
@@ -141,6 +143,32 @@ fail:
   fprintf(stderr, "[seekdb_cuvs] deserialize failed: %s\n", cuvsGetLastErrorText());
   free(index);
   return NULL;
+}
+
+int seekdb_cuvs_copy_dataset(void* handle, float* out, long n, long dim)
+{
+  sk_cuvs_index* index = (sk_cuvs_index*)handle;
+  if (!index || !out || n <= 0 || dim <= 0 || index->n != n || index->dim != dim ||
+      (size_t)n > SIZE_MAX / (size_t)dim / sizeof(float)) return 1;
+  DLManagedTensor dataset;
+  memset(&dataset, 0, sizeof(dataset));
+  if (cuvsCagraIndexGetDataset(index->idx, &dataset) != CUVS_SUCCESS) {
+    fprintf(stderr, "[seekdb_cuvs] dataset view failed: %s\n", cuvsGetLastErrorText());
+    return 2;
+  }
+  int rc = 0;
+  if (dataset.dl_tensor.ndim != 2 || dataset.dl_tensor.dtype.code != kDLFloat ||
+      dataset.dl_tensor.dtype.bits != 32 || !dataset.dl_tensor.shape ||
+      dataset.dl_tensor.shape[0] != n || dataset.dl_tensor.shape[1] != dim) {
+    rc = 3;
+  } else if (cudaMemcpy(out, dataset.dl_tensor.data,
+                        sizeof(float)*(size_t)n*(size_t)dim,
+                        cudaMemcpyDefault) != cudaSuccess) {
+    rc = 4;
+  }
+  if (dataset.deleter) dataset.deleter(&dataset);
+  if (rc) fprintf(stderr, "[seekdb_cuvs] dataset copy failed rc=%d\n", rc);
+  return rc;
 }
 
 int seekdb_cuvs_cagra_knn(const float* base, long n, long dim,

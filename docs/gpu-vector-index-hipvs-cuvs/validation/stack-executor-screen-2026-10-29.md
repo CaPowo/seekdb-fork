@@ -97,6 +97,61 @@ a claimed general build-speedup. Graph bytes remained 384,001,713 and result
 row counts/duplicate checks passed. A server restart then loaded the saved
 4 MiB-chunk snapshot and returned 10 IDs through one traced GPU CAGRA serve.
 
+### Avoid duplicate FP32 vector payload in snapshot V3
+
+The V2 snapshot wrote the raw FP32 rows and then wrote the serialized CAGRA
+graph, which already embeds its dataset. V3 retains the ID list and CAGRA graph
+but omits the second copy of the vectors. On deserialization it recovers the
+FP32 rows from `cuvsCagraIndexGetDataset()` into the adaptor's staging buffer.
+The reader still accepts V2 snapshots, so existing persisted indexes remain
+loadable. This changes only the private snapshot format; SQL and FP32 behavior
+are unchanged.
+
+The two V3 runs used the same 250,000 x 256 synthetic FP32 vectors, fixed
+`niter=100`, graph degree 128, intermediate degree 256, and 4,096 single-query
+Top-10 plus Top-100 statements as the V2 4 MiB runs:
+
+| Format | Run | Build + first query (ms) | CAGRA build (ms) | Snapshot stream write (ms) | Top-10 / Top-100 QPS | Recall@10 / @100 |
+|---|---:|---:|---:|---:|---:|---:|
+| V2, 4 MiB | 1 | 58,355 | 46,276 | 5,079 | 197.27 / 189.65 | not recorded |
+| V2, 4 MiB | 2 | 59,783 | 44,286 | 8,640 | 196.66 / 185.91 | not recorded |
+| V3 | 1 | 53,912 | 45,808 | 298 | 251.35 / 245.02 | 0.948022 / 0.868337 |
+| V3 | 2 | 55,462 | 47,785 | 300 | 241.88 / 242.19 | 0.945996 / 0.869231 |
+
+Across these two runs, V3's build+first-query mean was 54.69 s versus 59.07 s
+for V2 4 MiB (7.4% lower); snapshot stream output fell from 6.86 s to 0.30 s
+(95.6% lower). CAGRA build time itself varied and did not improve in these
+samples, so the end-to-end reduction is attributable to removing redundant
+snapshot output, not faster graph construction. The 250,000 x 256 raw-vector
+copy omitted from the outer payload is 256,000,000 bytes (about 244 MiB).
+V3 returned all 409,600 Top-100 rows with no duplicate-result queries in both
+runs.
+
+Persistence checks on the GPU instance:
+
+* V3 was loaded after a full server restart. The table retained 250,000 rows;
+  its first 10-result query returned 10 distinct IDs and emitted `cuvs_serve`.
+  The server logged `deserialized GPU CAGRA snapshot(... graph_bytes=384001713)`.
+* A prior V2 index (`items_snapshotchunk_final4mb100`) was also reopened after
+  restart, returned 10 distinct IDs, and emitted `cuvs_serve`.
+* The bridge C API persistence test wrote and reloaded a 10,000 x 32 FP32
+  graph. Exact vector restoration, top-1 ID 0, and distance 0 passed; wrong
+  shape checks (9,999 x 32 and 10,000 x 33) were rejected.
+
+The exact benchmark invocation for each V3 sample was:
+
+```bash
+bash /workspace/amd-cagra-v5-validation/new-image/run_variant_256_nq4096.sh \
+  snapshot_v3_test100 NN_DESCENT 128 256 100
+bash /workspace/amd-cagra-v5-validation/new-image/run_variant_256_nq4096.sh \
+  snapshot_v3_test100_r2 NN_DESCENT 128 256 100
+```
+
+These numbers are still synthetic GPU-instance diagnostics, not official
+SIFT250K/Hidden250K scores. The benchmark samples are small; the storage-format
+change and compatibility tests pass, but no official score or quality-gate
+claim follows from this screen.
+
 ## FP16 probe (discarded)
 
 An internal FP16 CAGRA build/query probe reduced the serialized graph from
