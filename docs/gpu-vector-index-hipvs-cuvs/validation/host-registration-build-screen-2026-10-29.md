@@ -41,6 +41,12 @@ validates build completion and returned-ID integrity, not Recall or official
 SQL performance. The newly provisioned instance had no seekdb build or official
 SIFT250K/Hidden250K dataset, so these timings are diagnostic only.
 
+After adding the committed harness, one additional confirmation pair measured
+42,453.733 ms baseline and 41,153.405 ms registered input; both returned the
+same top-1 ID and passed ID-integrity checks. That single pair favors
+registration by 3.1%, but is within the multi-run spread above and does not
+change the decision not to promote it.
+
 ## Next profiling target
 
 Input pinning did not shorten the build. The remaining large cost is inside
