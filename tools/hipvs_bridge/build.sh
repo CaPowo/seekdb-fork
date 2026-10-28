@@ -31,7 +31,6 @@ mkdir -p "$(dirname "$OUTPUT")"
   -L"$HIPVS_ROOT/lib" \
   -Wl,-soname,libseekdb_cuvs_bridge.so \
   -Wl,-rpath,"$HIPVS_ROOT/lib:$ROCM_ROOT/lib" \
-  -pthread \
   -lcuvs_c \
   -o "$OUTPUT"
 
